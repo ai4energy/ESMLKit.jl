@@ -390,6 +390,7 @@ end
         @test report["summary"]["errors"] == 0
         @test report["summary"]["models"] == 2
         @test report["summary"]["five_level_ok"] == true
+        @test report["summary"] isa Dict{String,Any}
         @test report["findings"] isa Vector
         @test report["findings"][1]["code"] == "F13"
         @test report["findings"][1]["severity"] == "warning"
@@ -683,6 +684,35 @@ end
                         close!(a)
                         close!(b)
                     end
+                end
+
+                @testset "real engine: the CLI layer" begin
+                    # `check`/`check-units` on a clean document must be a clean
+                    # verdict; the reports come back as plain dictionaries.
+                    res = cli(["check", doc, "--json"]; binary = bin)
+                    @test res.code == 0
+                    reports = check(doc; binary = bin)
+                    @test reports isa Vector{Dict{String,Any}}
+                    @test length(reports) == 1
+                    @test occursin(basename(doc), reports[1]["file"])
+                    @test reports[1]["well_formed"] == true
+                    @test reports[1]["summary"]["errors"] == 0
+                    @test reports[1]["summary"] isa Dict{String,Any}
+
+                    unit_reports = check_units(doc; binary = bin)
+                    @test unit_reports isa Vector{Dict{String,Any}}
+                    @test length(unit_reports) == 1
+                    @test unit_reports[1]["well_formed"] == true
+
+                    # `inspect` and `dump` answer with text.
+                    text = inspect(doc; system = "S", binary = bin)
+                    @test text isa String
+                    @test !isempty(strip(text))
+                    structure = ESMLKit.dump(doc; system = "S", binary = bin)
+                    @test structure isa String
+                    @test !isempty(strip(structure))
+
+                    @test version(binary = bin) isa AbstractString
                 end
             end
         end

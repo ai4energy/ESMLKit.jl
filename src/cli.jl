@@ -146,7 +146,7 @@ end
 "Parse `text` as a JSON array of objects (the `--json` shape of the front validators)."
 function _json_objects(text::AbstractString, op::AbstractString)
     parsed = try
-        JSON.parse(text)
+        plain(JSON.parse(text))
     catch e
         throw(
             EsmlError(
