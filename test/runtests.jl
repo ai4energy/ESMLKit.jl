@@ -3,6 +3,7 @@ using ESMLKit
 
 const FAKE = joinpath(@__DIR__, "fake_esml.jl")
 const FAKE_ONESHOT = joinpath(@__DIR__, "fake_oneshot.jl")
+const FAKE_CLI = joinpath(@__DIR__, "fake_cli.jl")
 const ROOT = dirname(@__DIR__)
 # Pkg.test runs in a temporary test environment. Point the fake engine at the
 # active project (which has JSON), not at the package checkout, so the suite
@@ -30,6 +31,7 @@ end
 
 const SHIM = make_shim("esml", FAKE)
 const ONESHOT = make_shim("esml-oneshot", FAKE_ONESHOT)
+const CLI_SHIM = make_shim("esml-cli", FAKE_CLI)
 
 "Return the exception thrown by `f`, or `nothing`."
 function caught(f)
@@ -346,6 +348,229 @@ end
         @test err isa EsmlError && err.kind == :timeout
     end
 
+    @testset "cli: full-function pass-through" begin
+        res = cli(["check", "plant.esml", "--json"]; binary = CLI_SHIM)
+        @test res isa CLIResult
+        @test res.code == 0
+        @test occursin("well_formed", res.stdout)
+        @test isempty(res.stderr)
+    end
+
+    @testset "cli: a non-zero exit is data, not an exception" begin
+        res = withenv("FAKE_CLI_MODE" => "error") do
+            cli(["check", "plant.esml", "--json"]; binary = CLI_SHIM)
+        end
+        @test res.code == 1
+        @test occursin("esml.error/v1", res.stderr)
+    end
+
+    @testset "cli: stdin is forwarded" begin
+        res = cli(["echo-stdin"]; input = "hello\n", binary = CLI_SHIM)
+        @test res.code == 0
+        @test strip(res.stdout) == "hello"
+    end
+
+    @testset "cli: timeout kills the engine" begin
+        started = time()
+        err = withenv("FAKE_CLI_MODE" => "timeout") do
+            caught(() -> cli(["solve", "plant.esml"]; binary = CLI_SHIM, timeout = 0.5))
+        end
+        @test err isa EsmlError
+        @test err.kind == :timeout
+        @test time() - started < 20.0
+    end
+
+    @testset "check: the JSON report array is passed through" begin
+        reports = check("plant.esml"; binary = CLI_SHIM)
+        @test reports isa Vector{Dict{String,Any}}
+        @test length(reports) == 1
+        report = reports[1]
+        @test report["file"] == "plant.esml"
+        @test report["well_formed"] == true
+        @test report["summary"]["errors"] == 0
+        @test report["summary"]["models"] == 2
+        @test report["summary"]["five_level_ok"] == true
+        @test report["summary"] isa Dict{String,Any}
+        @test report["findings"] isa Vector
+        @test report["findings"][1]["code"] == "F13"
+        @test report["findings"][1]["severity"] == "warning"
+    end
+
+    @testset "check: library roots are forwarded" begin
+        reports = check("plant.esml"; libraries = ["lib-a", "lib-b"], binary = CLI_SHIM)
+        @test reports[1]["summary"]["use_libraries"] == 2
+    end
+
+    @testset "check: a non-zero exit raises with stderr" begin
+        err = withenv("FAKE_CLI_MODE" => "error") do
+            caught(() -> check("plant.esml"; binary = CLI_SHIM))
+        end
+        @test err isa EsmlError
+        @test err.kind == :engine
+        @test err.op == "check"
+        @test occursin("esml.error/v1", err.message)
+    end
+
+    @testset "check: malformed JSON raises a protocol error" begin
+        err = withenv("FAKE_CLI_MODE" => "bad-json") do
+            caught(() -> check("plant.esml"; binary = CLI_SHIM))
+        end
+        @test err isa EsmlError
+        @test err.kind == :protocol
+    end
+
+    @testset "check_units: the JSON report array is passed through" begin
+        reports = check_units("plant.esml"; binary = CLI_SHIM)
+        @test length(reports) == 1
+        @test reports[1]["well_formed"] == true
+        @test reports[1]["summary"]["type_unit_decls"] == 3
+        @test isempty(reports[1]["findings"])
+    end
+
+    @testset "check_units: a non-zero exit raises with stderr" begin
+        err = withenv("FAKE_CLI_MODE" => "error") do
+            caught(() -> check_units("plant.esml"; binary = CLI_SHIM))
+        end
+        @test err isa EsmlError
+        @test err.kind == :engine
+        @test err.op == "check-units"
+    end
+
+    @testset "tasks: the esml.tasks/v1 envelope is decoded" begin
+        out = tasks("computeTasks.esml"; binary = CLI_SHIM)
+        @test out isa TasksOutput
+        @test length(out.tasks) == 1
+        task = out.tasks[1]
+        @test task isa TaskResult
+        @test task.name == "forecast"
+        @test task.kind == "forecast"
+        @test task.target == "S"
+        @test task.units["m.x"] == "K"
+        @test task.meta["engineVersion"] == "9.9.9-fake"
+        @test task.outcome["status"] == "ok"
+        @test task.raw["name"] == "forecast"
+        @test out.raw["apiVersion"] == "esml.tasks/v1"
+        @test out.raw["ok"] == true
+        @test out.raw["system"] == "S"
+    end
+
+    @testset "tasks: system, library roots and jobs are forwarded" begin
+        out = tasks(
+            "computeTasks.esml";
+            system = "S2",
+            libraries = ["lib-a", "lib-b"],
+            jobs = 4,
+            binary = CLI_SHIM,
+        )
+        @test out.raw["system"] == "S2"
+        @test out.tasks[1].target == "S2"
+        @test out.raw["meta"]["jobs"] == "4"
+    end
+
+    @testset "tasks: ok=false raises and keeps the envelope" begin
+        err = withenv("FAKE_CLI_MODE" => "tasks-fail") do
+            caught(() -> tasks("computeTasks.esml"; binary = CLI_SHIM))
+        end
+        @test err isa EsmlError
+        @test err.kind == :engine
+        @test err.op == "tasks"
+        @test occursin("ok=false", err.message)
+        @test occursin("forecast", err.message)
+        @test err.raw isa Dict
+        @test err.raw["ok"] == false
+        @test err.raw["apiVersion"] == "esml.tasks/v1"
+    end
+
+    @testset "tasks: a wrong apiVersion is a protocol error" begin
+        err = withenv("FAKE_CLI_MODE" => "tasks-bad-api") do
+            caught(() -> tasks("computeTasks.esml"; binary = CLI_SHIM))
+        end
+        @test err isa EsmlError
+        @test err.kind == :protocol
+        @test occursin("esml.tasks/v1", err.message)
+    end
+
+    @testset "tasks: malformed JSON is a protocol error" begin
+        err = withenv("FAKE_CLI_MODE" => "bad-json") do
+            caught(() -> tasks("computeTasks.esml"; binary = CLI_SHIM))
+        end
+        @test err isa EsmlError
+        @test err.kind == :protocol
+    end
+
+    @testset "inspect: the report comes back as text" begin
+        text = inspect("plant.esml"; system = "S2", binary = CLI_SHIM)
+        @test text isa String
+        @test occursin("plant.esml", text)
+        @test occursin("S2", text)
+    end
+
+    @testset "inspect: a non-zero exit raises with stderr" begin
+        err = withenv("FAKE_CLI_MODE" => "error") do
+            caught(() -> inspect("plant.esml"; binary = CLI_SHIM))
+        end
+        @test err isa EsmlError
+        @test err.kind == :engine
+        @test err.op == "inspect"
+        @test occursin("esml.error/v1", err.message)
+    end
+
+    @testset "dump: the structure comes back as text" begin
+        # `dump` shadows `Base.dump`, so it must be qualified here — the same
+        # caveat the README documents.
+        text = ESMLKit.dump("plant.esml"; system = "S2", binary = CLI_SHIM)
+        @test text isa String
+        @test occursin("Model m", text)
+        @test occursin("S2", text)
+    end
+
+    @testset "dump: a non-zero exit raises with stderr" begin
+        err = withenv("FAKE_CLI_MODE" => "error") do
+            caught(() -> ESMLKit.dump("plant.esml"; binary = CLI_SHIM))
+        end
+        @test err isa EsmlError
+        @test err.kind == :engine
+        @test err.op == "dump"
+    end
+
+    @testset "version: the engine version is read" begin
+        @test version(binary = CLI_SHIM) == "9.9.9-fake"
+    end
+
+    @testset "version: an unparsable version is a protocol error" begin
+        err = withenv("FAKE_CLI_MODE" => "no-version") do
+            caught(() -> version(binary = CLI_SHIM))
+        end
+        @test err isa EsmlError
+        @test err.kind == :protocol
+        @test err.op == "version"
+    end
+
+    @testset "academic limit: the constant is 16,384" begin
+        @test MAX_UNKNOWNS == 16_384
+    end
+
+    @testset "academic limit: exactly 16,384 unknowns is allowed" begin
+        out = solve("plant.esml"; binary = CLI_SHIM)
+        @test out isa SolveOutput
+        @test out.unknowns == 16_384
+        @test haskey(out.values, "m.x")
+    end
+
+    @testset "academic limit: 16,385 unknowns is refused" begin
+        err = withenv("FAKE_CLI_MODE" => "unknowns-over") do
+            caught(() -> solve("plant.esml"; binary = CLI_SHIM))
+        end
+        @test err isa EsmlError
+        @test err.kind == :academic_limit
+        @test err.op == "solve"
+        @test occursin("16385", err.message)
+        @test occursin("学术版上限 16384", err.message)
+        @test occursin("商业版请用商业二进制/客户端", err.message)
+        @test err.raw isa Dict
+        @test err.raw["unknowns"] == 16_385
+    end
+
     # ── real engine (opt-in) ─────────────────────────────────────────────
     let bin = get(ENV, "ESML_BIN", nothing)
         if bin === nothing
@@ -459,6 +684,35 @@ end
                         close!(a)
                         close!(b)
                     end
+                end
+
+                @testset "real engine: the CLI layer" begin
+                    # `check`/`check-units` on a clean document must be a clean
+                    # verdict; the reports come back as plain dictionaries.
+                    res = cli(["check", doc, "--json"]; binary = bin)
+                    @test res.code == 0
+                    reports = check(doc; binary = bin)
+                    @test reports isa Vector{Dict{String,Any}}
+                    @test length(reports) == 1
+                    @test occursin(basename(doc), reports[1]["file"])
+                    @test reports[1]["well_formed"] == true
+                    @test reports[1]["summary"]["errors"] == 0
+                    @test reports[1]["summary"] isa Dict{String,Any}
+
+                    unit_reports = check_units(doc; binary = bin)
+                    @test unit_reports isa Vector{Dict{String,Any}}
+                    @test length(unit_reports) == 1
+                    @test unit_reports[1]["well_formed"] == true
+
+                    # `inspect` and `dump` answer with text.
+                    text = inspect(doc; system = "S", binary = bin)
+                    @test text isa String
+                    @test !isempty(strip(text))
+                    structure = ESMLKit.dump(doc; system = "S", binary = bin)
+                    @test structure isa String
+                    @test !isempty(strip(structure))
+
+                    @test version(binary = bin) isa AbstractString
                 end
             end
         end

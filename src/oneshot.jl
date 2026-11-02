@@ -41,6 +41,8 @@ function solve(
     args = _cli_args("solve", path, system, libraries, binary)
     push!(args, "--json")
     env = _run_cli(args, "esml.solve/v1", timeout, "solve")
+    unknowns = _to_int(_field(env, "unknowns"))
+    _check_academic_limit(unknowns, "solve"; raw = env)
     values = Dict{String,Float64}()
     units = Dict{String,String}()
     for row in _array(env, "values")
@@ -55,7 +57,7 @@ function solve(
     meta isa AbstractDict || throw(protocol_error("protocol: `meta` is not an object"; env = env))
     return SolveOutput(
         values,
-        _to_int(_field(env, "unknowns")),
+        unknowns,
         _maybe_string(_field(env, "system")),
         env,
         units,
@@ -88,6 +90,10 @@ function simulate(
         push!(args, join(_observe(observe), ","))
     end
     env = _run_cli(args, "esml.simulate/v1", timeout, "simulate")
+    # The simulate envelope normally carries no unknown count — the engine
+    # refuses an oversized system while flattening it. If a binary does
+    # report one, hold it to the academic limit all the same.
+    _check_academic_limit(_to_int(_field(env, "unknowns")), "simulate"; raw = env)
     columns = [String(c) for c in _array(env, "columns")]
     rows = _array(env, "rows")
     series = Dict{String,Vector{Float64}}()

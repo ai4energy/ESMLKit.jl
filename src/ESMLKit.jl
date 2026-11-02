@@ -32,11 +32,24 @@ export Session,
     restore!,
     info,
     close!,
-    stderr_tail
+    stderr_tail,
+    cli,
+    CLIResult,
+    check,
+    check_units,
+    tasks,
+    TasksOutput,
+    TaskResult,
+    inspect,
+    dump,
+    version,
+    MAX_UNKNOWNS
 
 include("errors.jl")
+include("limits.jl")
 include("binary.jl")
 include("session.jl")
 include("oneshot.jl")
+include("cli.jl")
 
 end

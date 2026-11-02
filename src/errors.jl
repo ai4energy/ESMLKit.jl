@@ -10,9 +10,18 @@ failure classes:
 * `:timeout`           — no answer within the session timeout (killed)
 * `:closed`            — the engine exited / the session was closed
 * `:binary_not_found`  — the `esml` executable could not be located
+* `:academic_limit`    — the system has more unknowns than the academic
+                         edition allows (see `MAX_UNKNOWNS`)
 """
 
-const ERROR_KINDS = (:engine, :protocol, :timeout, :closed, :binary_not_found)
+const ERROR_KINDS = (
+    :engine,
+    :protocol,
+    :timeout,
+    :closed,
+    :binary_not_found,
+    :academic_limit,
+)
 
 struct EsmlError <: Exception
     message::String
