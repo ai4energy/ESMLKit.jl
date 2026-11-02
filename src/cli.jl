@@ -180,6 +180,212 @@ function _json_objects(text::AbstractString, op::AbstractString)
     return out
 end
 
+"Parse `text` as a JSON object (the `--json` shape of the task envelope)."
+function _json_object(text::AbstractString, op::AbstractString)
+    parsed = try
+        JSON.parse(text)
+    catch e
+        throw(
+            EsmlError(
+                "`esml $(op) --json` emitted non-JSON output: $(repr(text)) " *
+                "($(sprint(showerror, e)))";
+                kind = :protocol,
+                op = op,
+            ),
+        )
+    end
+    parsed isa AbstractDict || throw(
+        EsmlError(
+            "expected a JSON object from `esml $(op) --json`";
+            kind = :protocol,
+            op = op,
+            raw = parsed,
+        ),
+    )
+    return Dict{String,Any}(String(k) => plain(v) for (k, v) in pairs(parsed))
+end
+
+# ── tasks ─────────────────────────────────────────────────────────────────
+
+"The `apiVersion` the task envelope must carry."
+const TASKS_API_VERSION = "esml.tasks/v1"
+
+"""
+    TaskResult
+
+One task of an [`esml.tasks/v1`](@ref) envelope.
+
+`name`, `kind` and `target` are the task's identity (which task it is, what
+kind of computation it runs, which system it targets). `units` maps an output
+path to its unit, `meta` carries task-level metadata (duration, engine
+version, …) and `outcome` is the task's result object. `raw` is the task
+object exactly as the engine wrote it — the typed fields above are a
+convenience, `raw` is the lossless copy.
+"""
+struct TaskResult
+    name::String
+    kind::String
+    target::String
+    units::Dict{String,Any}
+    meta::Dict{String,Any}
+    outcome::Dict{String,Any}
+    raw::Dict{String,Any}
+end
+
+"""
+    TasksOutput
+
+Result of [`tasks`](@ref): the task list plus the envelope it came from.
+
+`raw` is the complete `esml.tasks/v1` envelope — it keeps the engine's
+`system`, `meta` and anything else the envelope carries that the typed
+fields above do not model.
+"""
+struct TasksOutput
+    tasks::Vector{TaskResult}
+    raw::Dict{String,Any}
+end
+
+"""
+    tasks(path; system=nothing, libraries=String[], jobs=nothing,
+          binary=nothing, timeout=300.0) -> TasksOutput
+
+Run a `<computeTasks>` document through the engine's task runner and return
+the tasks it executed.
+
+The engine answers with an `esml.tasks/v1` envelope:
+
+```json
+{
+  "apiVersion": "esml.tasks/v1",
+  "ok": true,
+  "system": "S",
+  "tasks": [
+    {"name": "forecast", "kind": "forecast", "target": "S",
+     "units": {"m.x": "K"}, "meta": {"durationMs": 1},
+     "outcome": {"kind": "forecast", "status": "ok"}}
+  ],
+  "meta": {"engineVersion": "9.9.9"}
+}
+```
+
+The envelope is validated before it is handed back:
+
+* `apiVersion` must be `"esml.tasks/v1"` — anything else is a
+  `EsmlError(kind = :protocol)` (a binary that speaks a different envelope
+  version is not something this client can interpret).
+* `ok` must be `true` — `ok = false` raises an `EsmlError(kind = :engine)`
+  whose `raw` is the whole envelope, so the caller can see *which* task
+  failed and why.
+
+`system` selects the system (`--system`), `libraries` are library roots
+(`-L`), `jobs` is the parallelism the engine may use (`--jobs`).
+
+```julia
+out = tasks("computeTasks.esml"; system = "S")
+out.tasks[1].name
+```
+"""
+function tasks(
+    path::AbstractString;
+    system = nothing,
+    libraries = String[],
+    jobs = nothing,
+    binary = nothing,
+    timeout = 300.0,
+)
+    args = String["tasks", String(path), "--json"]
+    system === nothing || append!(args, ["--system", String(system)])
+    _append_libroots!(args, libraries)
+    jobs === nothing || append!(args, ["--jobs", string(jobs)])
+    res = cli(args; timeout = timeout, binary = binary)
+    res.code == 0 || throw(_exit_error(res, "tasks"))
+    envelope = _json_object(res.stdout, "tasks")
+
+    api = get(envelope, "apiVersion", "")
+    api == TASKS_API_VERSION || throw(
+        EsmlError(
+            "expected apiVersion \"$(TASKS_API_VERSION)\" from `esml tasks --json`, " *
+            "got \"$(api)\"";
+            kind = :protocol,
+            op = "tasks",
+            raw = envelope,
+        ),
+    )
+
+    list = get(envelope, "tasks", nothing)
+    list isa AbstractVector || throw(
+        EsmlError(
+            "`esml tasks --json` envelope has no `tasks` array";
+            kind = :protocol,
+            op = "tasks",
+            raw = envelope,
+        ),
+    )
+
+    results = TaskResult[]
+    for item in list
+        item isa AbstractDict || throw(
+            EsmlError(
+                "expected a JSON array of objects from `esml tasks --json`";
+                kind = :protocol,
+                op = "tasks",
+                raw = envelope,
+            ),
+        )
+        raw = Dict{String,Any}(String(k) => plain(v) for (k, v) in pairs(item))
+        for key in ("name", "kind")
+            get(raw, key, nothing) isa AbstractString || throw(
+                EsmlError(
+                    "`esml tasks --json` task entry is missing the string field `$(key)`";
+                    kind = :protocol,
+                    op = "tasks",
+                    raw = envelope,
+                ),
+            )
+        end
+        push!(
+            results,
+            TaskResult(
+                String(raw["name"]),
+                String(raw["kind"]),
+                String(get(raw, "target", "")),
+                _plain_dict(get(raw, "units", Dict{String,Any}())),
+                _plain_dict(get(raw, "meta", Dict{String,Any}())),
+                _plain_dict(get(raw, "outcome", Dict{String,Any}())),
+                raw,
+            ),
+        )
+    end
+
+    ok = get(envelope, "ok", false)
+    ok === true || throw(
+        EsmlError(
+            "`esml tasks` reported ok=false" *
+            _failed_task_suffix(results);
+            kind = :engine,
+            op = "tasks",
+            raw = envelope,
+        ),
+    )
+
+    return TasksOutput(results, envelope)
+end
+
+"Naming the tasks that did not report a successful status (for error messages)."
+function _failed_task_suffix(results)
+    failed = [r for r in results if get(r.outcome, "status", "ok") != "ok"]
+    isempty(failed) && return ""
+    names = join(("`$(r.name)`" for r in failed), ", ")
+    return ": failed task(s) $(names)"
+end
+
+"Coerce a JSON value to a plain `Dict{String,Any}` (empty when it is not an object)."
+function _plain_dict(value)
+    value isa AbstractDict || return Dict{String,Any}()
+    return Dict{String,Any}(String(k) => plain(v) for (k, v) in pairs(value))
+end
+
 """
     check(path; libraries=String[], binary=nothing, timeout=120.0) -> Vector{Dict{String,Any}}
 

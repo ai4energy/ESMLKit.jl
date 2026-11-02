@@ -435,6 +435,68 @@ end
         @test err.op == "check-units"
     end
 
+    @testset "tasks: the esml.tasks/v1 envelope is decoded" begin
+        out = tasks("computeTasks.esml"; binary = CLI_SHIM)
+        @test out isa TasksOutput
+        @test length(out.tasks) == 1
+        task = out.tasks[1]
+        @test task isa TaskResult
+        @test task.name == "forecast"
+        @test task.kind == "forecast"
+        @test task.target == "S"
+        @test task.units["m.x"] == "K"
+        @test task.meta["engineVersion"] == "9.9.9-fake"
+        @test task.outcome["status"] == "ok"
+        @test task.raw["name"] == "forecast"
+        @test out.raw["apiVersion"] == "esml.tasks/v1"
+        @test out.raw["ok"] == true
+        @test out.raw["system"] == "S"
+    end
+
+    @testset "tasks: system, library roots and jobs are forwarded" begin
+        out = tasks(
+            "computeTasks.esml";
+            system = "S2",
+            libraries = ["lib-a", "lib-b"],
+            jobs = 4,
+            binary = CLI_SHIM,
+        )
+        @test out.raw["system"] == "S2"
+        @test out.tasks[1].target == "S2"
+        @test out.raw["meta"]["jobs"] == "4"
+    end
+
+    @testset "tasks: ok=false raises and keeps the envelope" begin
+        err = withenv("FAKE_CLI_MODE" => "tasks-fail") do
+            caught(() -> tasks("computeTasks.esml"; binary = CLI_SHIM))
+        end
+        @test err isa EsmlError
+        @test err.kind == :engine
+        @test err.op == "tasks"
+        @test occursin("ok=false", err.message)
+        @test occursin("forecast", err.message)
+        @test err.raw isa Dict
+        @test err.raw["ok"] == false
+        @test err.raw["apiVersion"] == "esml.tasks/v1"
+    end
+
+    @testset "tasks: a wrong apiVersion is a protocol error" begin
+        err = withenv("FAKE_CLI_MODE" => "tasks-bad-api") do
+            caught(() -> tasks("computeTasks.esml"; binary = CLI_SHIM))
+        end
+        @test err isa EsmlError
+        @test err.kind == :protocol
+        @test occursin("esml.tasks/v1", err.message)
+    end
+
+    @testset "tasks: malformed JSON is a protocol error" begin
+        err = withenv("FAKE_CLI_MODE" => "bad-json") do
+            caught(() -> tasks("computeTasks.esml"; binary = CLI_SHIM))
+        end
+        @test err isa EsmlError
+        @test err.kind == :protocol
+    end
+
     # ── real engine (opt-in) ─────────────────────────────────────────────
     let bin = get(ENV, "ESML_BIN", nothing)
         if bin === nothing

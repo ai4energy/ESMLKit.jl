@@ -36,7 +36,10 @@ export Session,
     cli,
     CLIResult,
     check,
-    check_units
+    check_units,
+    tasks,
+    TasksOutput,
+    TaskResult
 
 include("errors.jl")
 include("binary.jl")

@@ -13,6 +13,7 @@ Set `FAKE_CLI_MODE` to exercise the failure modes:
 * `bad-json`      — stdout carries something that is not JSON
 * `timeout`       — never answers (timeout test)
 * `tasks-fail`    — `tasks` envelope with `ok = false`
+* `tasks-bad-api` — `tasks` envelope with the wrong `apiVersion`
 * `unknowns-over` — `solve` reports 16385 unknowns (over the academic cap)
 """
 
@@ -102,21 +103,38 @@ function check_units_report(file)
     )
 end
 
-function tasks_envelope(ok)
+"Value of `name` in `args`, or `nothing` when the flag was not given."
+function flag_value(args, name)
+    for (i, arg) in enumerate(args)
+        if arg == name
+            return i < length(args) ? args[i + 1] : nothing
+        end
+    end
+    return nothing
+end
+
+function tasks_envelope(ok, args = String[])
+    api = MODE == "tasks-bad-api" ? "esml.tasks/v0" : TASKS_API
+    system = something(flag_value(args, "--system"), flag_value(args, "-s"), "S")
+    jobs = flag_value(args, "--jobs")
     task = Dict{String,Any}(
         "name" => "forecast",
         "kind" => "forecast",
-        "target" => "S",
+        "target" => system,
         "units" => Dict{String,Any}("m.x" => "K"),
         "meta" => Dict{String,Any}("durationMs" => 1, "engineVersion" => ENGINE_VERSION),
         "outcome" => Dict{String,Any}("kind" => "forecast", "status" => ok ? "ok" : "failed"),
     )
     return Dict{String,Any}(
-        "apiVersion" => TASKS_API,
+        "apiVersion" => api,
         "ok" => ok,
-        "system" => "S",
+        "system" => system,
         "tasks" => Any[task],
-        "meta" => Dict{String,Any}("engineVersion" => ENGINE_VERSION, "durationMs" => 1),
+        "meta" => Dict{String,Any}(
+            "engineVersion" => ENGINE_VERSION,
+            "durationMs" => 1,
+            "jobs" => jobs,
+        ),
     )
 end
 
@@ -170,7 +188,12 @@ function main(args)
         end
         return 0
     elseif cmd == "tasks"
-        println(JSON.json(tasks_envelope(MODE != "tasks-fail"), 2))
+        if has_flag(rest, "--json")
+            println(JSON.json(tasks_envelope(MODE != "tasks-fail", rest), 2))
+        else
+            # the human-readable form of the same run
+            println("task forecast (forecast) [S]: ok")
+        end
         return 0
     elseif cmd == "inspect"
         println("document : $(file) (2 models)")
