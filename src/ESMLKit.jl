@@ -32,11 +32,14 @@ export Session,
     restore!,
     info,
     close!,
-    stderr_tail
+    stderr_tail,
+    cli,
+    CLIResult
 
 include("errors.jl")
 include("binary.jl")
 include("session.jl")
 include("oneshot.jl")
+include("cli.jl")
 
 end

@@ -3,6 +3,7 @@ using ESMLKit
 
 const FAKE = joinpath(@__DIR__, "fake_esml.jl")
 const FAKE_ONESHOT = joinpath(@__DIR__, "fake_oneshot.jl")
+const FAKE_CLI = joinpath(@__DIR__, "fake_cli.jl")
 const ROOT = dirname(@__DIR__)
 # Pkg.test runs in a temporary test environment. Point the fake engine at the
 # active project (which has JSON), not at the package checkout, so the suite
@@ -30,6 +31,7 @@ end
 
 const SHIM = make_shim("esml", FAKE)
 const ONESHOT = make_shim("esml-oneshot", FAKE_ONESHOT)
+const CLI_SHIM = make_shim("esml-cli", FAKE_CLI)
 
 "Return the exception thrown by `f`, or `nothing`."
 function caught(f)
@@ -344,6 +346,38 @@ end
             caught(() -> solve("plant.esml"; binary = ONESHOT, timeout = 0.5))
         end
         @test err isa EsmlError && err.kind == :timeout
+    end
+
+    @testset "cli: full-function pass-through" begin
+        res = cli(["check", "plant.esml", "--json"]; binary = CLI_SHIM)
+        @test res isa CLIResult
+        @test res.code == 0
+        @test occursin("well_formed", res.stdout)
+        @test isempty(res.stderr)
+    end
+
+    @testset "cli: a non-zero exit is data, not an exception" begin
+        res = withenv("FAKE_CLI_MODE" => "error") do
+            cli(["check", "plant.esml", "--json"]; binary = CLI_SHIM)
+        end
+        @test res.code == 1
+        @test occursin("esml.error/v1", res.stderr)
+    end
+
+    @testset "cli: stdin is forwarded" begin
+        res = cli(["echo-stdin"]; input = "hello\n", binary = CLI_SHIM)
+        @test res.code == 0
+        @test strip(res.stdout) == "hello"
+    end
+
+    @testset "cli: timeout kills the engine" begin
+        started = time()
+        err = withenv("FAKE_CLI_MODE" => "timeout") do
+            caught(() -> cli(["solve", "plant.esml"]; binary = CLI_SHIM, timeout = 0.5))
+        end
+        @test err isa EsmlError
+        @test err.kind == :timeout
+        @test time() - started < 20.0
     end
 
     # ── real engine (opt-in) ─────────────────────────────────────────────
