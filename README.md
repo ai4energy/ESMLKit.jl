@@ -1,16 +1,20 @@
 # ESMLKit.jl
 
-ESML 引擎的 **MIT** Julia 客户端。包名从 `ESML` 迁移为 `ESMLKit`，
-以满足 Julia General 的包名长度要求；UUID 保持不变。公开面是**一次性调用**：`solve` / `simulate`
-每次启动一个 `esml` 进程，读取 `esml.solve/v1` / `esml.simulate/v1` JSON，
-调用之间不保留状态。
+[中文说明](README.zh.md)
 
-常驻数字孪生（DTIL）会话 `Session`（`predict` / `snapshot` / `restore`）属于
-**商业版**能力，需要商业版引擎；学术版会在 `esml session` 入口响亮拒绝。
+ESMLKit.jl is the **MIT-licensed Julia client** for the ESML engine. It launches
+the separate `esml` binary and speaks the `esml.session/v1` JSON protocol over
+stdin/stdout; no engine code is linked or embedded.
 
-本包绑定的是 ESML 引擎二进制；Julia 侧的示范性实现是
-[`ai4ecom/esml-engine-julia`](https://github.com/ai4ecom/esml-engine-julia)，
-与本包是两件独立的东西。
+The public surface is **one-shot** `solve` / `simulate`: each call starts an
+`esml` process and returns an `esml.solve/v1` / `esml.simulate/v1` envelope.
+Resident digital-twin sessions (`Session`, `predict`, `snapshot`, `restore!`)
+require the commercial engine edition; the academic edition rejects
+`esml session` at startup.
+
+The **educational, Julia-native reference implementation** of the engine lives
+in [`ai4energy/esml-julia`](https://github.com/ai4energy/esml-julia). It is a
+separate project; ESMLKit.jl is the client for the Rust engine binary.
 
 ```julia
 using ESMLKit
@@ -23,70 +27,83 @@ traj = simulate("plant.esml", (0.0, 60.0), 60; observe = ["tank.T"])
 println(traj.series["tank.T"][end], " ", get(traj.units, "tank.T", nothing))
 ```
 
-## 安装
+## Installation
 
 ```julia
 using Pkg
+Pkg.add("ESMLKit")
+```
+
+Until the package is registered in General, install it from the repository URL:
+
+```julia
 Pkg.add(url = "https://github.com/ai4energy/ESMLKit.jl")
 ```
 
-还需要**引擎二进制**：
+### Engine binary
 
-- 免费学术版（展平未知量 ≤ 16,384，非商业用途）：
+The client needs the ESML engine binary:
+
+- Academic edition (flattened unknowns ≤ 16,384, non-commercial use):
   <https://github.com/ai4energy/esml/releases>
-- 放到 `PATH`，或设 `ESML_BIN=/path/to/esml`，或传 `binary="/path/to/esml"`。
-  显式给出的路径不可执行时**响亮报错**，绝不静默换一个二进制。
+- Point the client at the binary once:
+  ```julia
+  ESMLKit.set_binary_path("/path/to/esml")
+  ```
+  The path is stored as a Julia package preference. The resolution order is
+  explicit `binary=` argument → `set_binary_path` preference → `ESML_BIN`
+  environment variable → `PATH`.
+- A path that is explicitly configured but is not executable raises a loud
+  error; the client never silently falls back to another binary.
 
 ## API
 
-一次性调用（学术版即可用）：
+One-shot calls (available with the academic engine):
 
-| 调用 | 含义 |
+| Call | Meaning |
 | --- | --- |
-| `solve(path; system=nothing, libraries=String[], binary=nothing, timeout=120.0)` | 稳态求解 → `SolveOutput(values, unknowns, system, raw, units, meta)` |
-| `simulate(path, tspan=(0.0, 1.0), steps=100; observe=nothing, …)` | 一次性时间积分 → `SimulateOutput(t, series, steps, system, raw, units, meta)` |
+| `solve(path; system=nothing, libraries=String[], binary=nothing, timeout=120.0)` | Steady-state solve → `SolveOutput(values, unknowns, system, raw, units, meta)` |
+| `simulate(path, tspan=(0.0, 1.0), steps=100; observe=nothing, …)` | One time integration → `SimulateOutput(t, series, steps, system, raw, units, meta)` |
 
-`units` 是路径 → SI 量纲表达式的映射（模型未声明单位时缺项）；`meta` 含
-`engineVersion`、`docHash`（源文件 SHA-256）、`durationMs`、`converged`、
-`iterations`、`residual`、`residualTolerance` 与 `unitCoverage`。字段语义见
-[结果契约](https://docs.ai4energy.cn/esml/results)。
+`units` maps variable paths to SI dimension expressions. `meta` contains
+`engineVersion`, `docHash`, `durationMs`, `converged`, `iterations`,
+`residual`, `residualTolerance`, and `unitCoverage`.
 
-引擎版本：`units` / `meta` 需引擎 **>= 1.8.1**；`iterations` / `residual` /
-`EsmlError.code` 需引擎 **>= 1.9.0**。旧引擎缺少的字段会表现为空的 `meta` /
-`units` 或 `None`，客户端不伪造。
+`observe` accepts variable paths only; an empty list is rejected by the client,
+and unknown or duplicate paths are rejected by the engine.
 
+Commercial resident sessions (DTIL):
 
-`observe` 只接受变量路径；空列表在客户端拒绝，未知/重复路径由引擎拒绝。
-
-商业版常驻会话（DTIL）：
-
-| 调用 | 含义 |
+| Call | Meaning |
 | --- | --- |
-| `Session(path; system=nothing, libraries=String[], binary=nothing, timeout=nothing)` | 常驻会话 |
-| `solve(session)` / `simulate(session, tspan, steps; observe)` / `predict(session, horizon, …)` | 求解、链式积分、非推进预测 |
-| `set_param!` / `set_params!` / `set_state!` / `set_states!` / `clear_state!` | 热参数与状态注入 |
-| `snapshot` / `restore!` / `info` / `close!` | 快照恢复、状态与生命周期 |
+| `Session(path; system=nothing, libraries=String[], binary=nothing, timeout=nothing)` | Resident session |
+| `solve(session)`, `simulate(session, tspan, steps; observe)`, `predict(session, horizon, …)` | Solve, chained integration, non-advancing prediction |
+| `set_param!`, `set_params!`, `set_state!`, `set_states!`, `clear_state!` | Hot parameters and state injection |
+| `snapshot`, `restore!`, `info`, `close!` | Snapshot, restore, state, and lifecycle |
 
-`SolveResult` / `Trajectory` 含 `units` 与 `meta`，字段与一次性契约一致。
+`SolveResult` and `Trajectory` carry `units` and `meta` with the same contract
+as the one-shot calls. `EsmlError` also exposes `code`, `hint`, and `doc_hash`
+from `esml.error/v1`.
 
-`EsmlError` 还带 `code` / `hint` / `doc_hash`（来自 `esml.error/v1`）。
+Errors raise `EsmlError` with `kind` set to `:engine`, `:protocol`, `:timeout`,
+`:closed`, or `:binary_not_found`; invalid client arguments raise
+`ArgumentError`.
 
-失败抛 `EsmlError`，`kind` 区分 `:engine` / `:protocol` / `:timeout` / `:closed` /
-`:binary_not_found`；客户端参数错误抛 `ArgumentError`。
-
-## 许可
-
-- **本包**：MIT（见 `LICENSE`）。
-- **ESML 引擎**：**商业软件，不是 MIT**（见 `LICENSE-ENGINE.md`）。学术版（≤ 16,384 未知量、不含 DTIL）
-  非商业用途免费；商业用途需取得商业许可（mingtao.li@gmail.com）。本包不含引擎
-  代码，只通过公开 JSON 协议调用引擎。
-
-## 开发
+## Development
 
 ```bash
 julia --project=. -e 'using Pkg; Pkg.instantiate()'
-julia --project=. -e 'using Pkg; Pkg.test()'                  # 协议测试（假引擎）
-ESML_BIN=/path/to/esml julia --project=. test/runtests.jl     # 含真机集成
+julia --project=. -e 'using Pkg; Pkg.test()'                  # fake engine
+ESML_BIN=/path/to/esml julia --project=. test/runtests.jl     # real engine
 ```
 
-协议测试使用 `test/fake_esml.jl`；真机集成只在设置 `ESML_BIN` 时运行。
+The protocol tests use `test/fake_esml.jl`; the real-engine tests run only when
+`ESML_BIN` is set.
+
+## License
+
+- **This package**: MIT (see `LICENSE`).
+- **ESML engine**: commercial software (see `LICENSE-ENGINE.md`). The academic
+  edition is free for academic, teaching, and personal non-commercial use;
+  commercial use requires a license (mingtao.li@gmail.com). This package
+  contains no engine code and only calls the public JSON protocol.

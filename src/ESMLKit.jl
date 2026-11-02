@@ -7,7 +7,8 @@ protocol over stdin/stdout. No engine code is linked or embedded.
 
 module ESMLKit
 
-using JSON3
+using JSON
+using Preferences
 
 export Session,
     SolveResult,
@@ -17,6 +18,7 @@ export Session,
     SimulateOutput,
     EsmlError,
     find_binary,
+    set_binary_path,
     engine_version,
     solve,
     simulate,

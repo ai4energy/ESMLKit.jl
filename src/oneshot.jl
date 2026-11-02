@@ -156,7 +156,7 @@ function _run_cli(args, api, timeout, op)
             lines = split(message, '\n'; keepempty = false)
             if !isempty(lines)
                 parsed = try
-                    JSON3.read(lines[end])
+                    JSON.parse(lines[end])
                 catch
                     nothing
                 end
@@ -182,7 +182,7 @@ function _run_cli(args, api, timeout, op)
         end
         text = read(out_path, String)
         parsed = try
-            JSON3.read(text)
+            JSON.parse(text)
         catch e
             throw(
                 EsmlError(
@@ -204,7 +204,7 @@ function _run_cli(args, api, timeout, op)
             )
         _field(env, "apiVersion") == api || throw(
             EsmlError(
-                "unexpected envelope from `esml $(op) --json` (expected $(api))";
+                "unexpected apiVersion from `esml $(op) --json` (expected $(api))";
                 kind = :protocol,
                 op = op,
                 raw = env,

@@ -298,8 +298,8 @@ function snapshot(session::Session)
     snap = _field(env, "snapshot")
     snap isa AbstractDict ||
         throw(protocol_error("protocol: the `snapshot` op returned no snapshot object"; env = env))
-    # JSON3 turns a u64 `docHash` above typemax(Int64) into Float64; use the
-    # exact value parsed from the raw open/snapshot envelope instead.
+    # Keep the exact value parsed from the raw open/snapshot envelope; JSON
+    # parsers may otherwise widen a u64 `docHash` through a lossy type.
     exact = _field(env, "docHash")
     exact === nothing || (snap["docHash"] = exact)
     return snap
@@ -339,7 +339,7 @@ function close!(session::Session)
         session.closed && return false
         ok = false
         try
-            println(session.proc, JSON3.write(Dict{String,Any}("op" => "close")))
+            println(session.proc, JSON.json(Dict{String,Any}("op" => "close")))
             flush(session.proc)
             env = read_envelope(session)
             ok = _field(env, "op") == "close"
@@ -448,10 +448,10 @@ function _pairs(values, what::AbstractString)
     return rows
 end
 
-"""Recursively convert JSON3 values into plain Julia containers."""
-plain(value::JSON3.Object) =
+"""Recursively convert JSON objects/arrays into plain Julia containers."""
+plain(value::AbstractDict) =
     Dict{String,Any}(String(key) => plain(item) for (key, item) in pairs(value))
-plain(value::JSON3.Array) = Any[plain(item) for item in value]
+plain(value::AbstractVector) = Any[plain(item) for item in value]
 plain(value) = value
 
 function request(session::Session, op::AbstractString; fields...)
@@ -463,7 +463,7 @@ function request(session::Session, op::AbstractString; fields...)
             payload[String(key)] = value
         end
         try
-            println(session.proc, JSON3.write(payload))
+            println(session.proc, JSON.json(payload))
             flush(session.proc)
         catch err
             tail = stderr_tail(session)
@@ -499,7 +499,7 @@ end
 function read_envelope(session::Session)
     line = next_line(session)
     parsed = try
-        JSON3.read(line)
+        JSON.parse(line)
     catch err
         tail = stderr_tail(session)
         kill!(session)
@@ -539,10 +539,10 @@ function read_envelope(session::Session)
     return env
 end
 
-# `docHash` is an unsigned 64-bit integer. JSON3 parses integers above `typemax(Int64)` as
-# Float64 (53-bit mantissa), which would corrupt the hash on `restore!`:
-# serde then rejects the float, or worse, a rounded value could alias another
-# document. Re-read the decimal digits from the raw envelope and keep a BigInt.
+# `docHash` is an unsigned 64-bit integer. Different JSON parsers may widen it
+# through a lossy type, which would corrupt the hash on `restore!`: serde then
+# rejects the value, or worse, a rounded value could alias another document.
+# Re-read the decimal digits from the raw envelope and keep a BigInt.
 function _restore_exact_doc_hash!(env::Dict{String,Any}, line::AbstractString)
     m = match(r"\"docHash\"\s*:\s*(\d+)", line)
     m === nothing && return env

@@ -2,21 +2,34 @@ using Test
 using ESMLKit
 
 const FAKE = joinpath(@__DIR__, "fake_esml.jl")
+const FAKE_ONESHOT = joinpath(@__DIR__, "fake_oneshot.jl")
 const ROOT = dirname(@__DIR__)
+# Pkg.test runs in a temporary test environment. Point the fake engine at the
+# active project (which has JSON), not at the package checkout, so the suite
+# also works outside a repository checkout.
+const TEST_PROJECT = something(Base.active_project(), joinpath(ROOT, "Project.toml"))
 const SHIM_DIR = mktempdir()
 
-function make_shim()
-    shim = joinpath(SHIM_DIR, "esml")
+# The fake engine runs in a fresh Julia process. Warm JSON's precompile cache
+# in the test environment first; otherwise a cold precompile can exceed the
+# session-open timeout.
+let julia = joinpath(Sys.BINDIR, Base.julia_exename())
+    run(`$julia --startup-file=no --project=$TEST_PROJECT -e "using JSON"`)
+end
+
+function make_shim(name, fake)
+    shim = joinpath(SHIM_DIR, name)
     julia = joinpath(Sys.BINDIR, Base.julia_exename())
     open(shim, "w") do io
         println(io, "#!/bin/sh")
-        println(io, "exec '$(julia)' --startup-file=no --project='$(ROOT)' '$(FAKE)' \"\$@\"")
+        println(io, "exec '$(julia)' --startup-file=no --project='$(TEST_PROJECT)' '$(fake)' \"\$@\"")
     end
     chmod(shim, 0o755)
     return shim
 end
 
-const SHIM = make_shim()
+const SHIM = make_shim("esml", FAKE)
+const ONESHOT = make_shim("esml-oneshot", FAKE_ONESHOT)
 
 "Return the exception thrown by `f`, or `nothing`."
 function caught(f)
@@ -28,7 +41,7 @@ function caught(f)
     end
 end
 
-function with_session(f; mode = "ok", timeout = 5.0)
+function with_session(f; mode = "ok", timeout = 30.0)
     return withenv("FAKE_ESML_MODE" => mode) do
         session = Session("plant.esml"; binary = SHIM, timeout = timeout)
         try
@@ -216,7 +229,7 @@ end
 
     @testset "bad apiVersion" begin
         err = withenv("FAKE_ESML_MODE" => "bad-version") do
-            caught(() -> Session("plant.esml"; binary = SHIM, timeout = 5.0))
+            caught(() -> Session("plant.esml"; binary = SHIM, timeout = 30.0))
         end
         @test err isa EsmlError
         @test err.kind == :protocol
@@ -281,6 +294,56 @@ end
         @test err isa EsmlError && err.kind == :binary_not_found
 
         @test find_binary(SHIM) == SHIM
+    end
+
+    @testset "one-shot solve" begin
+        out = solve("plant.esml"; binary = ONESHOT)
+        @test out.values == Dict("m.x" => 0.5, "m.y" => 0.25)
+        @test out.units == Dict("m.x" => "1")
+        @test out.unknowns == 2
+        @test out.system == "S"
+        @test out.meta["converged"] == true
+    end
+
+    @testset "one-shot simulate" begin
+        out = simulate("plant.esml", (0.0, 1.0), 2; binary = ONESHOT)
+        @test out.t == [0.0, 1.0]
+        @test out.series["m.x"] == [1.0, 0.5]
+        @test out.series["m.y"] == [0.5, 0.25]
+        @test out.units == Dict("m.x" => "1")
+        @test out.steps == 2
+        @test out.system == "S"
+    end
+
+    @testset "one-shot error envelope" begin
+        err = withenv("FAKE_ONESHOT_MODE" => "error") do
+            caught(() -> solve("plant.esml"; binary = ONESHOT))
+        end
+        @test err isa EsmlError
+        @test err.kind == :engine
+        @test err.code == "model.parse"
+        @test err.hint == "fix the document"
+        @test err.doc_hash == "abc123"
+    end
+
+    @testset "one-shot malformed output" begin
+        err = withenv("FAKE_ONESHOT_MODE" => "bad-json") do
+            caught(() -> solve("plant.esml"; binary = ONESHOT))
+        end
+        @test err isa EsmlError && err.kind == :protocol
+
+        err = withenv("FAKE_ONESHOT_MODE" => "bad-api") do
+            caught(() -> solve("plant.esml"; binary = ONESHOT))
+        end
+        @test err isa EsmlError && err.kind == :protocol
+        @test occursin("apiVersion", err.message)
+    end
+
+    @testset "one-shot timeout" begin
+        err = withenv("FAKE_ONESHOT_MODE" => "timeout") do
+            caught(() -> solve("plant.esml"; binary = ONESHOT, timeout = 0.5))
+        end
+        @test err isa EsmlError && err.kind == :timeout
     end
 
     # ── real engine (opt-in) ─────────────────────────────────────────────

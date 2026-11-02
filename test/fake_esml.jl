@@ -11,7 +11,7 @@ mirrors the real engine's envelope shapes and error semantics. Set
 * `garbage`     — answers each request with a non-JSON line
 """
 
-using JSON3
+using JSON
 
 const API = "esml.session/v1"
 const DOC_HASH = 42
@@ -19,9 +19,9 @@ const MODE = get(ENV, "FAKE_ESML_MODE", "ok")
 const VARIABLES = ["m.x", "m.y"]
 const STATES = ["m.x"]
 
-plain(value::JSON3.Object) =
+plain(value::AbstractDict) =
     Dict{String,Any}(String(key) => plain(item) for (key, item) in pairs(value))
-plain(value::JSON3.Array) = Any[plain(item) for item in value]
+plain(value::AbstractVector) = Any[plain(item) for item in value]
 plain(value) = value
 
 function envelope(; kwargs...)
@@ -301,7 +301,7 @@ function main(args)
     fake = Fake()
     version = MODE == "bad-version" ? "esml.session/v0" : API
     println(
-        JSON3.write(
+        JSON.json(
             Dict{String,Any}(
                 "apiVersion" => version,
                 "op" => "open",
@@ -328,17 +328,17 @@ function main(args)
             continue
         end
         req = try
-            plain(JSON3.read(line))
+            plain(JSON.parse(line))
         catch
             nothing
         end
         if !(req isa Dict{String,Any})
-            println(JSON3.write(error_envelope(nothing, "bad JSON")))
+            println(JSON.json(error_envelope(nothing, "bad JSON")))
             flush(stdout)
             continue
         end
         out = handle(fake, req)
-        println(JSON3.write(out))
+        println(JSON.json(out))
         flush(stdout)
         get(out, "op", nothing) == "close" && return 0
     end
