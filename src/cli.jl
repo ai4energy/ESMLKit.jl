@@ -387,6 +387,117 @@ function _plain_dict(value)
 end
 
 """
+    inspect(path; system=nothing, libraries=String[], binary=nothing, timeout=120.0) -> String
+
+Ask the engine to describe a document and return its report as text.
+
+`system` selects the system (`--system`) and `libraries` are library roots
+(`-L`). The engine's `inspect` prints a human-readable report — models,
+systems, unknown/equation counts — and that text is returned unchanged.
+
+A non-zero exit raises `EsmlError(kind = :engine)` with the engine's stderr.
+
+```julia
+println(inspect("plant.esml"; system = "S"))
+```
+"""
+function inspect(
+    path::AbstractString;
+    system = nothing,
+    libraries = String[],
+    binary = nothing,
+    timeout = 120.0,
+)
+    args = String["inspect", String(path)]
+    system === nothing || append!(args, ["--system", String(system)])
+    _append_libroots!(args, libraries)
+    res = cli(args; timeout = timeout, binary = binary)
+    res.code == 0 || throw(_exit_error(res, "inspect"))
+    return res.stdout
+end
+
+"""
+    dump(path; system=nothing, binary=nothing, timeout=120.0) -> String
+
+Ask the engine for the flattened structure of a document and return it as
+text.
+
+The dump lists every model, its parameters, variables, ports, equations and
+instances, plus the system's flattened unknown/equation counts. It is the
+quickest way to see *what the engine thinks the model is* before solving.
+
+The engine's unit warnings are written to stderr and are therefore not part
+of the returned text; use [`cli`](@ref) directly if you need both streams.
+
+A non-zero exit raises `EsmlError(kind = :engine)` with the engine's stderr.
+
+!!! note
+    This name shadows `Base.dump`. `using ESMLKit` therefore makes an
+    unqualified `dump` ambiguous with `Base.dump`; call `ESMLKit.dump` (or
+    `Base.dump`) when both are needed.
+
+```julia
+println(ESMLKit.dump("plant.esml"))
+```
+"""
+function dump(
+    path::AbstractString;
+    system = nothing,
+    binary = nothing,
+    timeout = 120.0,
+)
+    args = String["dump", String(path)]
+    system === nothing || append!(args, ["--system", String(system)])
+    res = cli(args; timeout = timeout, binary = binary)
+    res.code == 0 || throw(_exit_error(res, "dump"))
+    return res.stdout
+end
+
+"""
+    version(; binary=nothing) -> String
+
+Return the version of the engine binary the client will drive.
+
+The binary is resolved with the usual order (explicit argument →
+`set_binary_path` preference → `ESML_BIN` → `PATH`) and queried with
+`--version`. The version string is parsed exactly the way
+[`engine_version`](@ref) parses it.
+
+An engine that cannot be run raises `EsmlError(kind = :engine)`; an engine
+that runs but reports no parsable version raises
+`EsmlError(kind = :protocol)` with its raw output attached.
+
+```julia
+version()  # e.g. "1.8.0"
+version(binary = "/opt/esml/bin/esml")
+```
+"""
+function version(; binary = nothing)
+    exe = find_binary(binary)
+    out = try
+        String(read(ignorestatus(Cmd([exe, "--version"]))))
+    catch e
+        throw(
+            EsmlError(
+                "could not run `$(exe) --version`: $(sprint(showerror, e))";
+                kind = :engine,
+                op = "version",
+            ),
+        )
+    end
+    parsed = parse_engine_version(out)
+    parsed === nothing && throw(
+        EsmlError(
+            "could not read a version from `$(exe) --version`: $(repr(out))";
+            kind = :protocol,
+            op = "version",
+            raw = out,
+        ),
+    )
+    return parsed
+end
+
+"""
     check(path; libraries=String[], binary=nothing, timeout=120.0) -> Vector{Dict{String,Any}}
 
 Run the engine's front validator (`esml check --json`) and return one

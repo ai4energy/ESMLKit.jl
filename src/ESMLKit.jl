@@ -39,7 +39,10 @@ export Session,
     check_units,
     tasks,
     TasksOutput,
-    TaskResult
+    TaskResult,
+    inspect,
+    dump,
+    version
 
 include("errors.jl")
 include("binary.jl")

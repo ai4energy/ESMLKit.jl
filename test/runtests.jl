@@ -497,6 +497,54 @@ end
         @test err.kind == :protocol
     end
 
+    @testset "inspect: the report comes back as text" begin
+        text = inspect("plant.esml"; system = "S2", binary = CLI_SHIM)
+        @test text isa String
+        @test occursin("plant.esml", text)
+        @test occursin("S2", text)
+    end
+
+    @testset "inspect: a non-zero exit raises with stderr" begin
+        err = withenv("FAKE_CLI_MODE" => "error") do
+            caught(() -> inspect("plant.esml"; binary = CLI_SHIM))
+        end
+        @test err isa EsmlError
+        @test err.kind == :engine
+        @test err.op == "inspect"
+        @test occursin("esml.error/v1", err.message)
+    end
+
+    @testset "dump: the structure comes back as text" begin
+        # `dump` shadows `Base.dump`, so it must be qualified here — the same
+        # caveat the README documents.
+        text = ESMLKit.dump("plant.esml"; system = "S2", binary = CLI_SHIM)
+        @test text isa String
+        @test occursin("Model m", text)
+        @test occursin("S2", text)
+    end
+
+    @testset "dump: a non-zero exit raises with stderr" begin
+        err = withenv("FAKE_CLI_MODE" => "error") do
+            caught(() -> ESMLKit.dump("plant.esml"; binary = CLI_SHIM))
+        end
+        @test err isa EsmlError
+        @test err.kind == :engine
+        @test err.op == "dump"
+    end
+
+    @testset "version: the engine version is read" begin
+        @test version(binary = CLI_SHIM) == "9.9.9-fake"
+    end
+
+    @testset "version: an unparsable version is a protocol error" begin
+        err = withenv("FAKE_CLI_MODE" => "no-version") do
+            caught(() -> version(binary = CLI_SHIM))
+        end
+        @test err isa EsmlError
+        @test err.kind == :protocol
+        @test err.op == "version"
+    end
+
     # ── real engine (opt-in) ─────────────────────────────────────────────
     let bin = get(ENV, "ESML_BIN", nothing)
         if bin === nothing

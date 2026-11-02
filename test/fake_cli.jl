@@ -14,6 +14,7 @@ Set `FAKE_CLI_MODE` to exercise the failure modes:
 * `timeout`       — never answers (timeout test)
 * `tasks-fail`    — `tasks` envelope with `ok = false`
 * `tasks-bad-api` — `tasks` envelope with the wrong `apiVersion`
+* `no-version`    — `--version` prints nothing parsable
 * `unknowns-over` — `solve` reports 16385 unknowns (over the academic cap)
 """
 
@@ -140,7 +141,11 @@ end
 
 function main(args)
     if "--version" in args
-        println("ESML v$(ENGINE_VERSION) · fake CLI for client tests")
+        if MODE == "no-version"
+            println("a build without a parsable version")
+        else
+            println("ESML v$(ENGINE_VERSION) · fake CLI for client tests")
+        end
         return 0
     end
     if isempty(args)
@@ -196,13 +201,15 @@ function main(args)
         end
         return 0
     elseif cmd == "inspect"
+        system = something(flag_value(rest, "--system"), flag_value(rest, "-s"), "S")
         println("document : $(file) (2 models)")
-        println("system   : S -> 2 unknowns, 2 equations, 1 params")
+        println("system   : $(system) -> 2 unknowns, 2 equations, 1 params")
         return 0
     elseif cmd == "dump"
+        system = something(flag_value(rest, "--system"), flag_value(rest, "-s"), "S")
         println("document : $(file) (2 models)")
         println("  Model m: 1 params, 2 vars, 0 ports, 2 eqs, 0 instances")
-        println("system   : S -> 2 unknowns, 2 equations, 1 params")
+        println("system   : $(system) -> 2 unknowns, 2 equations, 1 params")
         return 0
     elseif cmd == "echo-stdin"
         # stdin plumbing check: the client must be able to feed the process

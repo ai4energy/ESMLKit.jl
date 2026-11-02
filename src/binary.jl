@@ -87,6 +87,19 @@ function engine_version(binary::AbstractString)
     catch
         return nothing
     end
-    m = match(_VERSION_RE, String(out))
+    return parse_engine_version(String(out))
+end
+
+"""
+    parse_engine_version(text) -> Union{Nothing,String}
+
+Extract the version string from raw `esml --version` output, or `nothing`
+when the text carries no version.
+
+Shared by [`engine_version`](@ref) and [`version`](@ref) so both agree on
+what an engine version looks like.
+"""
+function parse_engine_version(text::AbstractString)
+    m = match(_VERSION_RE, String(text))
     return m === nothing ? nothing : String(m.captures[1])
 end
