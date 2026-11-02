@@ -380,6 +380,61 @@ end
         @test time() - started < 20.0
     end
 
+    @testset "check: the JSON report array is passed through" begin
+        reports = check("plant.esml"; binary = CLI_SHIM)
+        @test reports isa Vector{Dict{String,Any}}
+        @test length(reports) == 1
+        report = reports[1]
+        @test report["file"] == "plant.esml"
+        @test report["well_formed"] == true
+        @test report["summary"]["errors"] == 0
+        @test report["summary"]["models"] == 2
+        @test report["summary"]["five_level_ok"] == true
+        @test report["findings"] isa Vector
+        @test report["findings"][1]["code"] == "F13"
+        @test report["findings"][1]["severity"] == "warning"
+    end
+
+    @testset "check: library roots are forwarded" begin
+        reports = check("plant.esml"; libraries = ["lib-a", "lib-b"], binary = CLI_SHIM)
+        @test reports[1]["summary"]["use_libraries"] == 2
+    end
+
+    @testset "check: a non-zero exit raises with stderr" begin
+        err = withenv("FAKE_CLI_MODE" => "error") do
+            caught(() -> check("plant.esml"; binary = CLI_SHIM))
+        end
+        @test err isa EsmlError
+        @test err.kind == :engine
+        @test err.op == "check"
+        @test occursin("esml.error/v1", err.message)
+    end
+
+    @testset "check: malformed JSON raises a protocol error" begin
+        err = withenv("FAKE_CLI_MODE" => "bad-json") do
+            caught(() -> check("plant.esml"; binary = CLI_SHIM))
+        end
+        @test err isa EsmlError
+        @test err.kind == :protocol
+    end
+
+    @testset "check_units: the JSON report array is passed through" begin
+        reports = check_units("plant.esml"; binary = CLI_SHIM)
+        @test length(reports) == 1
+        @test reports[1]["well_formed"] == true
+        @test reports[1]["summary"]["type_unit_decls"] == 3
+        @test isempty(reports[1]["findings"])
+    end
+
+    @testset "check_units: a non-zero exit raises with stderr" begin
+        err = withenv("FAKE_CLI_MODE" => "error") do
+            caught(() -> check_units("plant.esml"; binary = CLI_SHIM))
+        end
+        @test err isa EsmlError
+        @test err.kind == :engine
+        @test err.op == "check-units"
+    end
+
     # ── real engine (opt-in) ─────────────────────────────────────────────
     let bin = get(ENV, "ESML_BIN", nothing)
         if bin === nothing

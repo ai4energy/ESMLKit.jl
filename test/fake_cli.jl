@@ -46,7 +46,16 @@ function has_flag(args, name)
     return any(a -> a == name, args)
 end
 
-function check_report(file)
+"Number of `-L` / `--libroot` roots the caller passed (the engine audits that many)."
+function libroot_count(args)
+    n = 0
+    for (i, arg) in enumerate(args)
+        (arg == "-L" || arg == "--libroot") && (n += 1)
+    end
+    return n
+end
+
+function check_report(file, nlibs)
     return Dict{String,Any}(
         "file" => file,
         "well_formed" => true,
@@ -59,7 +68,7 @@ function check_report(file)
             "port_types" => 0,
             "units" => 5,
             "functions" => 0,
-            "use_libraries" => 1,
+            "use_libraries" => nlibs,
             "five_level_ok" => true,
             "connect_rules_total" => 0,
         ),
@@ -144,10 +153,21 @@ function main(args)
     file = isempty(pos) ? "model.esml" : pos[1]
 
     if cmd == "check"
-        println(JSON.json([check_report(file)], 2))
+        if has_flag(rest, "--json")
+            println(JSON.json([check_report(file, libroot_count(rest))], 2))
+        else
+            # the human-readable form of the same verdict
+            println("=== $(file)")
+            println("ok")
+        end
         return 0
     elseif cmd == "check-units"
-        println(JSON.json([check_units_report(file)], 2))
+        if has_flag(rest, "--json")
+            println(JSON.json([check_units_report(file)], 2))
+        else
+            println("=== $(file)")
+            println("ok")
+        end
         return 0
     elseif cmd == "tasks"
         println(JSON.json(tasks_envelope(MODE != "tasks-fail"), 2))

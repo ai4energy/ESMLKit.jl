@@ -34,7 +34,9 @@ export Session,
     close!,
     stderr_tail,
     cli,
-    CLIResult
+    CLIResult,
+    check,
+    check_units
 
 include("errors.jl")
 include("binary.jl")
