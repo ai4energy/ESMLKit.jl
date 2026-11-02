@@ -42,9 +42,11 @@ export Session,
     TaskResult,
     inspect,
     dump,
-    version
+    version,
+    MAX_UNKNOWNS
 
 include("errors.jl")
+include("limits.jl")
 include("binary.jl")
 include("session.jl")
 include("oneshot.jl")

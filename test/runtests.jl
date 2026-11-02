@@ -545,6 +545,31 @@ end
         @test err.op == "version"
     end
 
+    @testset "academic limit: the constant is 16,384" begin
+        @test MAX_UNKNOWNS == 16_384
+    end
+
+    @testset "academic limit: exactly 16,384 unknowns is allowed" begin
+        out = solve("plant.esml"; binary = CLI_SHIM)
+        @test out isa SolveOutput
+        @test out.unknowns == 16_384
+        @test haskey(out.values, "m.x")
+    end
+
+    @testset "academic limit: 16,385 unknowns is refused" begin
+        err = withenv("FAKE_CLI_MODE" => "unknowns-over") do
+            caught(() -> solve("plant.esml"; binary = CLI_SHIM))
+        end
+        @test err isa EsmlError
+        @test err.kind == :academic_limit
+        @test err.op == "solve"
+        @test occursin("16385", err.message)
+        @test occursin("学术版上限 16384", err.message)
+        @test occursin("商业版请用商业二进制/客户端", err.message)
+        @test err.raw isa Dict
+        @test err.raw["unknowns"] == 16_385
+    end
+
     # ── real engine (opt-in) ─────────────────────────────────────────────
     let bin = get(ENV, "ESML_BIN", nothing)
         if bin === nothing
