@@ -1,5 +1,6 @@
 using Test
 using ESMLKit
+using Preferences
 
 const FAKE = joinpath(@__DIR__, "fake_esml.jl")
 const FAKE_ONESHOT = joinpath(@__DIR__, "fake_oneshot.jl")
@@ -296,6 +297,21 @@ end
         @test err isa EsmlError && err.kind == :binary_not_found
 
         @test find_binary(SHIM) == SHIM
+
+        # `set_binary_path` records a preference that outranks `ESML_BIN`, and a
+        # second call overwrites the stored value instead of erroring out.
+        @test set_binary_path(SHIM) == SHIM
+        try
+            @test withenv("ESML_BIN" => ONESHOT) do
+                find_binary()
+            end == SHIM
+            @test set_binary_path(ONESHOT) == ONESHOT
+            @test withenv("ESML_BIN" => missing) do
+                find_binary()
+            end == ONESHOT
+        finally
+            Preferences.delete_preferences!("ESMLKit", "binary_path"; force = true)
+        end
     end
 
     @testset "one-shot solve" begin

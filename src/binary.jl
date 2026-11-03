@@ -27,7 +27,9 @@ function set_binary_path(path::AbstractString)
             ),
         )
     end
-    Preferences.set_preferences!("ESMLKit", _BINARY_PREFERENCE => expanded)
+    # `force = true`: calling `set_binary_path` again must overwrite an existing
+    # preference instead of erroring out.
+    Preferences.set_preferences!("ESMLKit", _BINARY_PREFERENCE => expanded; force = true)
     return expanded
 end
 
