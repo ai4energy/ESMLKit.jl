@@ -1,7 +1,7 @@
 name = "ESMLKit"
 uuid = "6fa1d99e-4a66-4af0-9128-1d23b8695e9c"
 authors = ["Mingtao Li <mingtao@xjtu.edu.cn>"]
-version = "0.5.0"
+version = "0.4.1"
 
 [deps]
 JSON = "682c06a0-de6a-54ab-a142-c8b1cf79cde6"

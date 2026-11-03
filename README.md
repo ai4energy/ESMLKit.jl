@@ -1,5 +1,8 @@
 # ESMLKit.jl
 
+[![CI](https://github.com/ai4energy/ESMLKit.jl/actions/workflows/ci.yml/badge.svg)](https://github.com/ai4energy/ESMLKit.jl/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/ai4energy/ESMLKit.jl/branch/main/graph/badge.svg)](https://codecov.io/gh/ai4energy/ESMLKit.jl)
+
 [中文说明](README.zh.md)
 
 ESMLKit.jl is the **MIT-licensed Julia client** for the ESML engine. It launches
@@ -74,7 +77,7 @@ The client needs the ESML engine binary:
 `observe` accepts variable paths only; an empty list is rejected by the client,
 and unknown or duplicate paths are rejected by the engine.
 
-### Full-function CLI (v0.5.0)
+### Full-function CLI
 
 | Call | Meaning |
 | --- | --- |
@@ -186,12 +189,15 @@ raise `ArgumentError`.
 ```bash
 julia --project=. -e 'using Pkg; Pkg.instantiate()'
 julia --project=. -e 'using Pkg; Pkg.test()'                  # fake engine
-ESML_BIN=/path/to/esml julia --project=. test/runtests.jl     # real engine
+julia --project=. -e 'using ESMLKit; ESMLKit.set_binary_path("/path/to/esml")'
+julia --project=. test/runtests.jl                            # real engine
 ```
 
 The protocol tests use `test/fake_esml.jl` (resident session), `test/fake_oneshot.jl`
 (one-shot solve/simulate) and `test/fake_cli.jl` (the CLI layer); the real-engine
-tests run only when `ESML_BIN` is set.
+tests run only when a binary is configured — either through
+`ESMLKit.set_binary_path` or, as a CI fallback, the `ESML_BIN` environment
+variable.
 
 ## License
 

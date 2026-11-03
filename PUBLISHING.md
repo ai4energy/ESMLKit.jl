@@ -1,14 +1,15 @@
 # 注册到 Julia General（准备清单）
 
-当前状态：**未注册，暂缓提交**。Julia General 中 `ESMLKit` 为空
-（2026-11-02 检查）；包 UUID 为 `6fa1d99e-4a66-4af0-9128-1d23b8695e9c`。
+当前状态：**注册 PR 已提交（`JuliaRegistries/General#174423`），按维护者意见修订中**。
+Julia General 中 `ESMLKit` 为空；包 UUID 为 `6fa1d99e-4a66-4af0-9128-1d23b8695e9c`。
 
-首个 General 登记版本定为 **0.5.0**；v0.1.0–v0.5.0 是登记前的开发 tag。
+首个 General 登记版本定为 **0.4.1**（维护者 goerz 建议先用 v0.4.x，v1.0.0 待
+Documenter 文档与覆盖率达标后再发）；v0.1.0–v0.5.0 是登记前的开发 tag。
 General 维护者建议：注册完成后由 TagBot 创建 tag，不在注册前预打 tag。
 
-## 本次登记的 API（v0.5.0）
+## 本次登记的 API
 
-v0.5.0 在原有的一次性调用之上加了**全功能 CLI 层**，登记时 README 的 API
+0.4.1 在原有的一次性调用之上加了**全功能 CLI 层**，登记时 README 的 API
 表按下面这份清单为准：
 
 | 导出 | 签名 |
@@ -34,10 +35,10 @@ v0.5.0 在原有的一次性调用之上加了**全功能 CLI 层**，登记时 
 
 ## 前提
 
-- `Project.toml` 的 `version` 与 `[compat]` 已定稿（当前 `0.5.0`）；
-- `Pkg.test("ESMLKit")` 在包外环境通过（协议测试；集成测试需 `ESML_BIN`）；
+- `Project.toml` 的 `version` 与 `[compat]` 已定稿（当前 `0.4.1`）；
+- `Pkg.test("ESMLKit")` 在包外环境通过（协议测试；集成测试需配置引擎路径）；
 - 仓库已安装 TagBot（`.github/workflows/TagBot.yml`）；
-- 注册前清理预注册 tag（`v0.4.1`、`v0.5.0`、`v1.0.0` 等），避免 tag 与最终注册 commit 不一致。
+- 注册前清理预注册 tag（`v0.1.0`–`v0.5.0`、`v1.0.0`），避免 tag 与最终注册 commit 不一致。
 
 ## 推荐路径：JuliaRegistrator
 
@@ -62,7 +63,7 @@ v0.5.0 在原有的一次性调用之上加了**全功能 CLI 层**，登记时 
   ```
 - `Versions.toml`
   ```toml
-  ["0.5.0"]
+  ["0.4.1"]
   git-tree-sha1 = "<git rev-parse <registration-commit>^{tree}>"
   ```
 - `Deps.toml`：`JSON`（`682c06a0-de6a-54ab-a142-c8b1cf79cde6`）、

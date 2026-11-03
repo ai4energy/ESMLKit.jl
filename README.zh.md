@@ -73,7 +73,7 @@ Pkg.add(url = "https://github.com/ai4energy/ESMLKit.jl")
 
 `observe` 只接受变量路径；空列表在客户端拒绝，未知/重复路径由引擎拒绝。
 
-### 全功能 CLI 层（v0.5.0）
+### 全功能 CLI 层
 
 | 调用 | 含义 |
 | --- | --- |
@@ -181,9 +181,10 @@ end
 ```bash
 julia --project=. -e 'using Pkg; Pkg.instantiate()'
 julia --project=. -e 'using Pkg; Pkg.test()'                  # 协议测试（假引擎）
-ESML_BIN=/path/to/esml julia --project=. test/runtests.jl     # 含真机集成
+julia --project=. -e 'using ESMLKit; ESMLKit.set_binary_path("/path/to/esml")'
+julia --project=. test/runtests.jl                            # 含真机集成
 ```
 
 协议测试使用 `test/fake_esml.jl`（常驻会话）、`test/fake_oneshot.jl`（一次性
-solve/simulate）与 `test/fake_cli.jl`（CLI 层）；真机集成只在设置 `ESML_BIN`
-时运行。
+solve/simulate）与 `test/fake_cli.jl`（CLI 层）；真机集成只在配置了引擎时运行
+——通过 `ESMLKit.set_binary_path` 配置，或在 CI 中用 `ESML_BIN` 环境变量兜底。
